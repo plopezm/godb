@@ -67,6 +67,63 @@ func (db *DB) doSelectOrWithReturning(query string, arguments []interface{}, rec
 	return int64(rowsCount), err
 }
 
+// doMultipleSelectOrWithReturning executes the statement and fills the auto fields.
+// It returns the count of rows returned.
+// It is called when the adapter implements ReturningSuffixer.
+// EXPERIMENTAL
+func (db *DB) doMultipleSelectOrWithReturning(query string, arguments []interface{}, recordDescriptions []*recordDescription, pointersGetters []pointersGetter) (int64, error) {
+	// Note : check length of slices !!! (and resultsets length)
+	// !!!
+
+	// Pas de stmt cache
+	rows, columns, err := db.executeQuery(query, arguments, false, true)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+
+	resultNumber := 0
+	existsResult := true
+	for existsResult {
+		recordDescription := recordDescriptions[resultNumber]
+		pointersGetter := pointersGetters[resultNumber]
+
+		// If the given slice is empty, the slice grows as the rows are read.
+		// If the given slice isn't empty it's filled with rows, and both rows and
+		// slice length have to be equals.
+		// If it's a single instance, it's juste filled, and the result must have
+		// only one row.
+		var rowsCount int
+		if recordDescription.len() > 0 {
+			rowsCount, err = db.fillWithValues(recordDescription, pointersGetter, columns, rows)
+		} else {
+			rowsCount, err = db.growAndFillWithValues(recordDescription, pointersGetter, columns, rows)
+		}
+		if err != nil {
+			db.logPrintln("ERROR : ", err)
+			return 0, err
+		}
+
+		err = rows.Err()
+		if err != nil {
+			db.logPrintln("ERROR : ", err)
+		}
+		//return int64(rowsCount), err
+		_ = rowsCount
+
+		existsResult := rows.NextResultSet()
+		if existsResult {
+			resultNumber++
+			columns, err = rows.Columns()
+			if err != nil {
+				return 0, err // TODO
+			}
+		}
+	}
+
+	return 0, err
+}
+
 // executeQuery executes the given query with its arguments and returns the
 // resulting *sql.Rows, the list of columns names, and an error.
 func (db *DB) executeQuery(query string, arguments []interface{}, noTx, noStmtCache bool) (*sql.Rows, []string, error) {

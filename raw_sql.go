@@ -65,3 +65,28 @@ func (raw *RawSQL) Do(record interface{}) error {
 func (raw *RawSQL) DoWithIterator() (Iterator, error) {
 	return raw.db.doWithIterator(raw.sql, raw.arguments)
 }
+
+// DoLater prepare the query to be executed later with a QueryGroup.
+// The record argument has to be a pointer to a struct or a slice.
+func (raw *RawSQL) DoLater(record interface{}) *QueryLater {
+	recordInfo, err := buildRecordDescription(record)
+	if err != nil {
+		return &QueryLater{err: err}
+	}
+
+	// the function which will return the pointers according to the given columns
+	pointersGetter := func(record interface{}, columns []string) ([]interface{}, error) {
+		var pointers []interface{}
+		pointers, err := recordInfo.structMapping.GetPointersForColumns(record, columns...)
+		return pointers, err
+	}
+
+	ql := &QueryLater{
+		sql:               raw.sql,
+		arguments:         raw.arguments,
+		recordDescription: recordInfo,
+		pointersGetter:    pointersGetter,
+	}
+
+	return ql
+}
